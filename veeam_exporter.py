@@ -189,7 +189,7 @@ def safe_get_json(url, auth, params=None):
     )
     return r.json()
 
-# ============== Only LICENSE Metrics ==============
+# ============== LICENSE Metrics ==============
 REGISTRY = CollectorRegistry()
 
 veeam_license_instances_total = Gauge("veeam_license_instances_total", "Licensed instances total", registry=REGISTRY)
@@ -479,7 +479,7 @@ def fetch_job_vm_results(auth):
 
     log(f"VM-level job results updated: {len(tasks)} task sessions")
 
-# --------- MAP Yardımcıları (tek seferlik) ----------
+# --------- MAP Helpers ----------
 def fetch_repositories_map(auth):
     url = f"{VEEAM_BASE_URL}/v1/backupInfrastructure/repositories"
     data = safe_get_json(url, auth)
@@ -492,7 +492,7 @@ def fetch_job_states_map(auth):
     data = safe_get_json(f"{VEEAM_BASE_URL}/v1/jobs/states", auth)
     return {j["name"]: j.get("repositoryName", "unknown") for j in data.get("data", [])}
 
-# --------- Job repo usage (map parametreli) ----------
+# --------- Job repo usage ----------
 def fetch_job_repo_usage(auth, repos_map, job_states):
     log("Fetching job repository usage...")
     backups = safe_get_json(f"{VEEAM_BASE_URL}/v1/backups", auth).get("data", [])
@@ -514,7 +514,7 @@ def fetch_job_repo_usage(auth, repos_map, job_states):
 
     log(f"Job repo usage metrics updated: {len(backups)} backups")
 
-# --------- VM repo usage (map parametreli) ----------
+# --------- VM repo usage ----------
 def fetch_vm_repository_usage(auth, repos_map, job_states):
     log("Fetching VM repository usage...")
 
@@ -732,11 +732,9 @@ if __name__ == "__main__":
             fetch_jobs(auth)
             fetch_job_vm_results(auth)
 
-            # ---- Map'leri tek sefer çek ----
             repos_map = fetch_repositories_map(auth)
             job_states = fetch_job_states_map(auth)
 
-            # ---- Map'leri kullanan fonksiyonlar ----
             fetch_job_repo_usage(auth, repos_map, job_states)
             fetch_vm_repository_usage(auth, repos_map, job_states)
 
@@ -749,6 +747,7 @@ if __name__ == "__main__":
             time.sleep(5)
 
         time.sleep(SCRAPE_INTERVAL)
+
 
 
 
