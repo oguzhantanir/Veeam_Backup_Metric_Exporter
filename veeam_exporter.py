@@ -12,12 +12,12 @@ from collections import defaultdict
 from prometheus_client import start_http_server, Gauge, CollectorRegistry
 
 # ============== Config ==============
-VEEAM_HOST = os.getenv("VEEAM_HOST", "10.6.0.66")
+VEEAM_HOST = os.getenv("VEEAM_HOST", "10.1.0.100")
 VEEAM_BASE_URL = f"https://{VEEAM_HOST}:9419/api"
 USERNAME = os.getenv("VEEAM_USERNAME", "monitor")
-PASSWORD = os.getenv("VEEAM_PASSWORD", "rLyYr735:146")
-CLIENT_ID = os.getenv("VEEAM_CLIENT_ID", None)  # gerekirse: "VeeamBackupService"
-API_VERSIONS = ["1.2-rev1", "1.2-rev0"]        # deneme sırası
+PASSWORD = os.getenv("VEEAM_PASSWORD", "BlaBlaBla")
+CLIENT_ID = os.getenv("VEEAM_CLIENT_ID", None)
+API_VERSIONS = ["1.2-rev1", "1.2-rev0"] 
 SCRAPE_INTERVAL = int(os.getenv("SCRAPE_INTERVAL", "30"))
 VEEAM_PORT = int(os.getenv("VEEAM_PORT", "9419"))
 
@@ -41,6 +41,62 @@ def check_connectivity(host, port=9419, timeout=5):
 # ============== Auth / HTTP ==============
 class AuthError(Exception):
     pass
+
+# ------------ Clear Cache ------------
+def clear_all_metrics():
+    metrics = [
+        veeam_license_instances_total,
+        veeam_license_instances_used,
+        veeam_license_instances_free,
+        veeam_license_expiration_timestamp,
+        veeam_license_days_until_expiration,
+        veeam_license_status_value,
+        veeam_license_info,
+        repo_capacity_bytes,
+        repo_free_bytes,
+repo_used_bytes,
+repo_used_percent,
+repo_online_status,
+veeam_job_retention_days,
+veeam_job_backup_mode,
+veeam_job_active_full_enabled,
+veeam_job_backup_health_enabled,
+veeam_job_status,
+veeam_job_last_result,
+veeam_job_last_run_timestamp,
+veeam_job_next_run_timestamp,
+veeam_job_objects_count,
+veeam_job_vm_info,
+veeam_job_vm_size_bytes,
+veeam_job_vm_last_result,
+veeam_job_data_size_bytes,
+veeam_job_backup_size_bytes,
+veeam_vm_data_size_bytes,
+veeam_vm_backup_size_bytes,
+veeam_proxies_total,
+veeam_proxy_max_tasks,
+veeam_proxy_failover_to_network,
+veeam_proxy_host_to_proxy_encryption,
+veeam_replication_job_status,
+veeam_replication_job_vm,
+veeam_replication_vm_target_size_bytes,
+veeam_replication_vm_source_size_bytes,
+veeam_replica_total_stored_bytes,
+veeam_replica_points_count,
+veeam_replication_job_points_count
+]
+for metric in metrics:
+try:
+if metric._labelnames:
+# Etiketli metrikler
+for labels in list(metric._metrics.keys()):
+metric.labels(*labels).set(float("nan"))
+else:
+# Etiketsiz metrikler
+metric.set(float("nan"))
+except Exception as e:
+log(f"Error clearing metric {metric._name}: {e}", "ERROR")
+continue
 
 def safe_request(method, url, auth_token=None, session_id=None, api_version=API_VERSIONS[0], **kwargs):
     delay = 5
@@ -527,3 +583,4 @@ if __name__ == "__main__":
             time.sleep(5)
 
         time.sleep(SCRAPE_INTERVAL)
+
