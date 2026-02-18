@@ -87,6 +87,7 @@ def clear_all_metrics():
         veeam_replica_points_count,
         veeam_replication_job_points_count
     ]
+    
     for metric in metrics:
         try:
             if metric._labelnames:
@@ -748,5 +749,6 @@ if __name__ == "__main__":
             time.sleep(5)
 
         time.sleep(SCRAPE_INTERVAL)
+
 
 
