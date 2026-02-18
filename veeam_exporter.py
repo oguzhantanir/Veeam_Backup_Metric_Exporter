@@ -20,6 +20,8 @@ CLIENT_ID = os.getenv("VEEAM_CLIENT_ID", None)
 API_VERSIONS = ["1.2-rev1", "1.2-rev0"] 
 SCRAPE_INTERVAL = int(os.getenv("SCRAPE_INTERVAL", "30"))
 VEEAM_PORT = int(os.getenv("VEEAM_PORT", "9419"))
+TASKSESSION_LOOKBACK = int(os.getenv("TASKSESSION_LOOKBACK", "2000"))
+REPLICAPOINT_LOOKBACK = int(os.getenv("REPLICAPOINT_LOOKBACK", "4000"))
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -54,49 +56,47 @@ def clear_all_metrics():
         veeam_license_info,
         repo_capacity_bytes,
         repo_free_bytes,
-repo_used_bytes,
-repo_used_percent,
-repo_online_status,
-veeam_job_retention_days,
-veeam_job_backup_mode,
-veeam_job_active_full_enabled,
-veeam_job_backup_health_enabled,
-veeam_job_status,
-veeam_job_last_result,
-veeam_job_last_run_timestamp,
-veeam_job_next_run_timestamp,
-veeam_job_objects_count,
-veeam_job_vm_info,
-veeam_job_vm_size_bytes,
-veeam_job_vm_last_result,
-veeam_job_data_size_bytes,
-veeam_job_backup_size_bytes,
-veeam_vm_data_size_bytes,
-veeam_vm_backup_size_bytes,
-veeam_proxies_total,
-veeam_proxy_max_tasks,
-veeam_proxy_failover_to_network,
-veeam_proxy_host_to_proxy_encryption,
-veeam_replication_job_status,
-veeam_replication_job_vm,
-veeam_replication_vm_target_size_bytes,
-veeam_replication_vm_source_size_bytes,
-veeam_replica_total_stored_bytes,
-veeam_replica_points_count,
-veeam_replication_job_points_count
-]
-for metric in metrics:
-try:
-if metric._labelnames:
-# Etiketli metrikler
-for labels in list(metric._metrics.keys()):
-metric.labels(*labels).set(float("nan"))
-else:
-# Etiketsiz metrikler
-metric.set(float("nan"))
-except Exception as e:
-log(f"Error clearing metric {metric._name}: {e}", "ERROR")
-continue
+        repo_used_bytes,
+        repo_used_percent,
+        repo_online_status,
+        veeam_job_retention_days,
+        veeam_job_backup_mode,
+        veeam_job_active_full_enabled,
+        veeam_job_backup_health_enabled,
+        veeam_job_status,
+        veeam_job_last_result,
+        veeam_job_last_run_timestamp,
+        veeam_job_next_run_timestamp,
+        veeam_job_objects_count,
+        veeam_job_vm_info,
+        veeam_job_vm_size_bytes,
+        veeam_job_vm_last_result,
+        veeam_job_data_size_bytes,
+        veeam_job_backup_size_bytes,
+        veeam_vm_data_size_bytes,
+        veeam_vm_backup_size_bytes,
+        veeam_proxies_total,
+        veeam_proxy_max_tasks,
+        veeam_proxy_failover_to_network,
+        veeam_proxy_host_to_proxy_encryption,
+        veeam_replication_job_status,
+        veeam_replication_job_vm,
+        veeam_replication_vm_target_size_bytes,
+        veeam_replication_vm_source_size_bytes,
+        veeam_replica_total_stored_bytes,
+        veeam_replica_points_count,
+        veeam_replication_job_points_count
+    ]
+    for metric in metrics:
+        try:
+            if metric._labelnames:
+                for labels in list(metric._metrics.keys()):
+                    metric.labels(*labels).set(float("nan"))
+            else: 
+                metric.set(float("nan"))
+        except Exception as e:
+            log(f"Error clearing metric {metric._name}: {e}", "ERROR")
+            continue
 
 def safe_request(method, url, auth_token=None, session_id=None, api_version=API_VERSIONS[0], **kwargs):
     delay = 5
@@ -145,6 +145,7 @@ def get_oauth_token():
             raise Exception("No access_token in response")
         except Exception as e:
             log(f"OAuth2 failed with x-api-version {api_version}: {e}", "ERROR")
+            clear_all_metrics()
             continue
     raise Exception("OAuth2 failed for all API versions")
 
@@ -230,6 +231,15 @@ veeam_job_backup_size_bytes = Gauge("veeam_job_backup_size_bytes", "Total reposi
 veeam_vm_data_size_bytes = Gauge("veeam_vm_data_size_bytes", "Total processed source data size for a VM (bytes)", ["vm_name","job_name","repository"], registry=REGISTRY)
 veeam_vm_backup_size_bytes = Gauge("veeam_vm_backup_size_bytes", "Total repository storage used for a VM (bytes, after dedup/compression)", ["vm_name","job_name","repository"], registry=REGISTRY)
 
+# ============== Replication Metrics ==============
+veeam_replication_job_status = Gauge("veeam_replication_job_status", "Replication job status (0=inactive,1=running,2=disabled,3=unknown)", ["job_id","job_name"], registry=REGISTRY)
+veeam_replication_job_vm = Gauge("veeam_replication_job_vm", "VMs included in replication jobs (value=1)", ["job_id","job_name","vm_name"], registry=REGISTRY)
+veeam_replication_vm_target_size_bytes = Gauge("veeam_replication_vm_target_size_bytes", "Latest ReplicaJob task session transferred bytes for VM (approx last RP size)", ["job_id","job_name","vm_name"], registry=REGISTRY)
+veeam_replication_vm_source_size_bytes = Gauge("veeam_replication_vm_source_size_bytes", "Original/source VM size in bytes (declared in job; fallback: latest processedSize/readSize)", ["job_id","job_name","vm_name"], registry=REGISTRY)
+veeam_replica_total_stored_bytes = Gauge("veeam_replica_total_stored_bytes", "Sum of transferred bytes across all restore points for each replica (approx total disk usage)", ["replica_id", "job_id", "job_name"], registry=REGISTRY)
+veeam_replica_points_count = Gauge("veeam_replica_points_count", "Number of replica restore points per replica", ["replica_id"], registry=REGISTRY)
+veeam_replication_job_points_count = Gauge("veeam_replication_job_points_count", "Number of replica restore points per replication job", ["job_id","job_name"], registry=REGISTRY)
+
 def parse_iso8601_to_epoch(ts: str):
     if not ts:
         return None
@@ -300,7 +310,6 @@ def fetch_repositories(auth):
         used_gb = float(r.get("usedSpaceGB") or 0)
         online = 1.0 if r.get("isOnline", False) else 0.0
 
-        # Byte'a çevir
         cap_b = cap_gb * 1024**3
         free_b = free_gb * 1024**3
         used_b = used_gb * 1024**3
@@ -434,14 +443,12 @@ def fetch_jobs(auth):
     log(f"Job metrics updated: {len(jobs)} jobs")
 
 def fetch_job_vm_results(auth):
-    # Önce job states ile sessionId eşleşmesi çıkar
     states_url = f"{VEEAM_BASE_URL}/v1/jobs/states"
     log("Fetching jobs and states for VM results...")
     states = safe_get_json(states_url, auth).get("data", [])
     session_to_job = {s["sessionId"]: {"id": s["id"], "name": s["name"]}
                       for s in states if s.get("sessionId")}
 
-    # Task sessions (VM bazlı sonuçlar)
     tasks_url = f"{VEEAM_BASE_URL}/v1/taskSessions"
     params = {"typeFilter": "Backup", "sessionTypeFilter": "BackupJob", "limit": 200}
     data = safe_get_json(tasks_url, auth, params=params)
@@ -527,6 +534,7 @@ def fetch_vm_repository_usage(auth, repos_map, job_states):
             files = safe_get_json(f"{VEEAM_BASE_URL}/v1/backups/{backup_id}/backupFiles", auth).get("data", [])
         except Exception as e:
             log(f"Failed to fetch backup files for job {job_name}: {e}", "ERROR")
+            clear_all_metrics()
             continue
 
         for f in files:
@@ -548,6 +556,162 @@ def fetch_vm_repository_usage(auth, repos_map, job_states):
 
     log(f"VM repository usage metrics updated: {len(vm_totals)} VMs")
 
+# ============== Replication Helpers & Fetchers ==============
+def is_replication_job(job):
+    jtype = (job.get("type") or "").lower()
+    return ("replica" in jtype) or ("replication" in jtype)
+
+def fetch_replication_jobs_and_states(auth):
+    jobs_url = f"{VEEAM_BASE_URL}/v1/jobs"
+    states_url = f"{VEEAM_BASE_URL}/v1/jobs/states"
+    jobs_raw = safe_get_json(jobs_url, auth).get("data", [])
+    states_raw = safe_get_json(states_url, auth).get("data", [])
+    state_map = {s["id"]: s for s in states_raw}
+
+    jobs = []
+    vm_declared_size = {}
+
+    for j in jobs_raw:
+        if not is_replication_job(j):
+            continue
+        jid   = j.get("id","unknown")
+        jname = j.get("name","unknown")
+        st = state_map.get(jid, {})
+        status = (st.get("status") or "unknown").lower()
+        disabled = 1 if j.get("isDisabled", False) else 0
+        if status == "running": status_val = 1
+        elif disabled: status_val = 2
+        elif status == "inactive": status_val = 0
+        else: status_val = 3
+        veeam_replication_job_status.labels(jid, jname).set(status_val)
+
+        vms = []
+        for vm in j.get("virtualMachines",{}).get("includes",[]):
+            inv = vm.get("inventoryObject") or vm
+            vm_name = str(inv.get("name","unknown"))
+            vms.append(vm_name)
+            veeam_replication_job_vm.labels(jid, jname, vm_name).set(1)
+
+            # job config içindeki 'size' -> bytes
+            size_candidate = inv.get("size") or vm.get("size")
+            b = parse_size_to_bytes(size_candidate)
+            if b and b > 0:
+                vm_declared_size.setdefault(vm_name, float(b))
+
+        jobs.append({"id": jid, "name": jname, "vms": vms})
+
+    log(f"[replication] jobs: {len(jobs)}")
+    return jobs, state_map, vm_declared_size
+
+def fetch_replication_tasks_maps(auth, lookback=TASKSESSION_LOOKBACK):
+    params = {
+        "sessionTypeFilter":"ReplicaJob",
+        "orderColumn":"CreationTime",
+        "orderAsc": False,
+        "limit": lookback
+    }
+    
+    data = safe_get_json(f"{VEEAM_BASE_URL}/v1/taskSessions", auth, params=params)
+    tasks = data.get("data", [])
+    vm_latest = {}
+    vm_processed = {}
+    for t in tasks:
+        name = t.get("name")
+        prog = t.get("progress") or {}
+        tx = prog.get("transferredSize") or prog.get("processedSize") or prog.get("readSize") or 0
+        ps = prog.get("processedSize") or prog.get("readSize") or 0
+        if name:
+            if isinstance(tx, (int,float)) and name not in vm_latest:
+                vm_latest[name] = float(tx)
+            if isinstance(ps, (int,float)) and name not in vm_processed:
+                vm_processed[name] = float(ps)
+    log(f"[replication] tasks fetched={len(tasks)}, vm_latest={len(vm_latest)}")
+    return vm_latest, vm_processed, tasks
+
+def fetch_replica_point_map_and_counts(auth, lookback=REPLICAPOINT_LOOKBACK):
+    params = {"orderColumn":"CreationTime","orderAsc":False,"limit":lookback}
+    data = safe_get_json(f"{VEEAM_BASE_URL}/v1/replicaPoints", auth, params=params)
+    rps = data.get("data", [])
+    rp_to_replica = {}
+    counts = {}
+    for p in rps:
+        rid = p.get("replicaId")
+        rp_to_replica[p.get("id")] = rid
+        if rid:
+            counts[rid] = counts.get(rid, 0) + 1
+    log(f"[replication] replicaPoints mapped={len(rp_to_replica)}; replicas with counts={len(counts)}")
+    return rp_to_replica, counts
+
+def fetch_replicas_index(auth):
+    data = safe_get_json(f"{VEEAM_BASE_URL}/v1/replicas", auth, params={"orderColumn":"Name","orderAsc":True})
+    replicas = data.get("data", [])
+    rep_index = {}
+    rep_ids = set()
+    for r in replicas:
+        rid = r.get("id")
+        if not rid:
+            continue
+        rep_index[rid] = {"job_id": r.get("jobId","unknown"), "replica_name": r.get("name","unknown")}
+        rep_ids.add(rid)
+    log(f"[replication] active replicas={len(rep_ids)}")
+    return rep_index, rep_ids
+
+def update_replication_metrics(auth):
+    jobs, state_map, vm_declared = fetch_replication_jobs_and_states(auth)
+    vm_latest, vm_processed, tasks = fetch_replication_tasks_maps(auth)
+    current_vm_names = set()
+    for j in jobs:
+        jid, jname = j["id"], j["name"]
+        for vm_name in j["vms"]:
+            current_vm_names.add(vm_name)
+            tgt_val = vm_latest.get(vm_name, 0.0)
+            veeam_replication_vm_target_size_bytes.labels(jid, jname, vm_name).set(tgt_val)
+            src_val = vm_declared.get(vm_name, 0.0)
+            if not src_val or src_val == 0.0:
+                src_val = vm_processed.get(vm_name, 0.0)
+            veeam_replication_vm_source_size_bytes.labels(jid, jname, vm_name).set(src_val)
+    replicas_index, valid_replica_ids = fetch_replicas_index(auth)
+    rp_map, rep_counts_by_replica = fetch_replica_point_map_and_counts(auth)
+    job_name_map = {j["id"]: j["name"] for j in jobs}
+    totals = {}
+    seen_rp = set()
+    for t in tasks:
+        rp_id = t.get("replicaPointId")
+        vm_name = t.get("name","unknown")
+        if not rp_id or rp_id in seen_rp:
+            continue
+        seen_rp.add(rp_id)
+        prog = t.get("progress") or {}
+        tx = prog.get("transferredSize") or prog.get("processedSize") or prog.get("readSize") or 0.0
+        try:
+            tx = float(tx)
+        except Exception:
+            tx = 0.0
+        rid = rp_map.get(rp_id)
+        if (not rid) or (rid not in valid_replica_ids) or (vm_name not in current_vm_names):
+            continue
+        totals[rid] = totals.get(rid, 0.0) + tx
+    for rid, total in totals.items():
+        info = replicas_index.get(rid) or {}
+        jid = str(info.get("job_id", "unknown"))
+        jname = job_name_map.get(jid, "unknown")
+        veeam_replica_total_stored_bytes.labels(str(rid), jid, jname).set(float(total))
+    for rid, cnt in rep_counts_by_replica.items():
+        if rid in valid_replica_ids:
+            veeam_replica_points_count.labels(str(rid)).set(int(cnt))
+    job_name_map = {j["id"]: j["name"] for j in jobs}
+    per_job = {}
+    for rid, cnt in rep_counts_by_replica.items():
+        info = replicas_index.get(rid) or {}
+        jid = info.get("job_id")
+        if not jid:
+            continue
+        per_job[jid] = per_job.get(jid, 0) + int(cnt)
+    for jid, total_cnt in per_job.items():
+        jname = job_name_map.get(jid, "unknown")
+        veeam_replication_job_points_count.labels(str(jid), str(jname)).set(int(total_cnt))
+    log(f"[replication] updated: jobs={len(jobs)}, vm_latest={len(vm_latest)}, replicas_total={len(totals)}, rp_counts={len(rep_counts_by_replica)}")
+    
 # ============== Main ==============
 if __name__ == "__main__":
     log("Starting Veeam LICENSE Exporter on :8000/metrics (GET-only)")
@@ -580,7 +744,9 @@ if __name__ == "__main__":
             auth = get_auth()
         except Exception as e:
             log(f"Unexpected error: {e}", "ERROR")
+            clear_all_metrics()
             time.sleep(5)
 
         time.sleep(SCRAPE_INTERVAL)
+
 
